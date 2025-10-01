@@ -1,33 +1,27 @@
 # -*- coding: utf-8 -*-
 """
-EPIAS Project — Streamlit (GitHub-native)
-- Tüm veri/modül dosyaları GitHub repo üzerinden çekilir (raw.githubusercontent).
-- Lokal dosya yolu yok; sol panelde repo içeriğinden seçim yapılır.
-- Mevcut model akışları korunur (ridge, rf, lgbm, xgb, voting).
+EPIAS Project — Streamlit (GitHub-native, token'sız)
+- Public GitHub reposundan (token gerektirmez) dosya listesi ve içerik.
+- Repo default branch otomatik bulunur.
+- Tüm repo ağacı tek istekle çekilir (git/trees?recursive=1).
+- Veri (.parquet/.csv) ve opsiyonel modül (.py) dosyaları listeden seçilir.
+- Lokal dosya yolu KULLANILMAZ.
 """
 
 from __future__ import annotations
-import os, sys, types, warnings, ast, io
+import os, sys, types, warnings, ast, io, time
 from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
+import requests
 import streamlit as st
-import requests  # GitHub'dan dosya çekmek için
 
-# ================== REPO AYARLARI (gerekirse değiştir) ==================
+# ================== REPO AYARLARI (senin repoun) ==================
 GH_OWNER  = "Boozkann"
 GH_REPO   = "EPIAS-Project"
-GH_BRANCH = "main"
-
-# Varsayılan seçimler (repo içi göreli yollar)
-DEFAULT_DATA_DIR  = "data/processed"
-DEFAULT_DATA_FILE = "fe_full_plus2_causal.parquet"  # varsa bu seçilir
-DEFAULT_MODULE_CANDIDATES = [
-    "data/processed/EDA_to_Model_EPIAS_Final_converted.py",
-    "EDA_to_Model_EPIAS_Final_converted.py",
-]
-# ========================================================================
+# GH_BRANCH = "main"  # ZORUNLU DEĞİL: default branch otomatik bulunacak
+# ================================================================
 
 # --------------------------- Soft dependency shims -----------------------
 def _inject_fake(name: str, attr_map: dict | None = None):
@@ -106,55 +100,50 @@ from sklearn.ensemble import RandomForestRegressor, VotingRegressor
 
 warnings.filterwarnings("ignore")
 st.set_page_config(page_title="EPİAŞ — GitHub-native ML Runner", layout="wide")
-st.title("⚡ EPİAŞ — ML Model Runner (GitHub-native)")
+st.title("⚡ EPİAŞ — ML Model Runner (GitHub-native, token'sız)")
 
 # ========================== GitHub yardımcıları ==========================
-def gh_api_url(path: str) -> str:
-    path = path.strip("/ ")
-    return f"https://api.github.com/repos/{GH_OWNER}/{GH_REPO}/contents/{path}?ref={GH_BRANCH}"
-
-def gh_raw_url(path: str) -> str:
-    path = path.strip("/ ")
-    return f"https://raw.githubusercontent.com/{GH_OWNER}/{GH_REPO}/{GH_BRANCH}/{path}"
-
-@st.cache_data(show_spinner=False)
-def gh_list_dir(path: str) -> List[dict]:
-    """GitHub contents API ile klasör listesi (dosya/klasör)."""
-    url = gh_api_url(path)
-    r = requests.get(url, timeout=30)
+def _gh(url: str, timeout=30):
+    """Basit GET, hatayı raise eder. Token yok (public repo)."""
+    r = requests.get(url, timeout=timeout, headers={"Accept": "application/vnd.github+json"})
     r.raise_for_status()
-    data = r.json()
-    # API klasörse liste döner; dosya ise dict döner -> normalize
-    if isinstance(data, dict):
-        return [data]
-    return data
+    return r
 
 @st.cache_data(show_spinner=False)
-def gh_get_bytes(path: str) -> bytes:
-    """Raw içerik (parquet gibi ikili) indirir."""
-    url = gh_raw_url(path)
-    r = requests.get(url, timeout=60)
+def gh_default_branch(owner: str, repo: str) -> str:
+    info_url = f"https://api.github.com/repos/{owner}/{repo}"
+    r = _gh(info_url, timeout=30)
+    return r.json().get("default_branch") or "main"
+
+@st.cache_data(show_spinner=False)
+def gh_tree(owner: str, repo: str, branch: str) -> List[dict]:
+    """Tüm repo ağacı; her dosya/klasör path döner."""
+    url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
+    r = _gh(url, timeout=60)
+    data = r.json()
+    return data.get("tree", [])
+
+@st.cache_data(show_spinner=False)
+def gh_raw_bytes(owner: str, repo: str, branch: str, path: str) -> bytes:
+    raw = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path.lstrip('/')}"
+    r = requests.get(raw, timeout=60)
     r.raise_for_status()
     return r.content
 
 @st.cache_data(show_spinner=False)
-def gh_get_text(path: str) -> str:
-    """Raw metin içerik (py/csv) indirir."""
-    url = gh_raw_url(path)
-    r = requests.get(url, timeout=60)
-    r.raise_for_status()
-    return r.text
+def gh_raw_text(owner: str, repo: str, branch: str, path: str) -> str:
+    return gh_raw_bytes(owner, repo, branch, path).decode("utf-8", errors="replace")
 # ========================================================================
 
 # ========================= Veri/Modül yükleyiciler =======================
 @st.cache_data(show_spinner=True)
-def read_data_from_github(path: str) -> pd.DataFrame:
+def read_data_from_github(owner: str, repo: str, branch: str, path: str) -> pd.DataFrame:
     low = path.lower()
     if low.endswith(".parquet"):
-        content = gh_get_bytes(path)
+        content = gh_raw_bytes(owner, repo, branch, path)
         df = pd.read_parquet(io.BytesIO(content))
     elif low.endswith(".csv"):
-        text = gh_get_text(path)
+        text = gh_raw_text(owner, repo, branch, path)
         df = pd.read_csv(io.StringIO(text))
     else:
         raise ValueError("Desteklenmeyen format. Parquet veya CSV verin.")
@@ -176,10 +165,6 @@ ALLOWED_GLOBAL_NAMES = {
 }
 
 def safe_import_module_from_source(src: str, virtual_filename: str = "user_module.py"):
-    """
-    Kaynaktan güvenli import: sadece fonksiyon/sınıf/import ve ALLOWED_GLOBAL_NAMES'e
-    yapılan atamaları bırakır; top-level yürütmeyi eler.
-    """
     tree = ast.parse(src, filename=virtual_filename)
     new_body = []
     for node in tree.body:
@@ -198,18 +183,14 @@ def safe_import_module_from_source(src: str, virtual_filename: str = "user_modul
             if keep:
                 new_body.append(node)
         else:
-            continue  # yürütücü bloklar atılır
-
+            continue
     new_tree = ast.Module(body=new_body, type_ignores=[])
     code = compile(new_tree, filename=virtual_filename, mode="exec")
-
     mod = types.ModuleType("user_pipeline_sandbox")
-    mod.__file__ = f"gh://{GH_OWNER}/{GH_REPO}/{GH_BRANCH}/{virtual_filename}"
-
+    mod.__file__ = f"gh://{GH_OWNER}/{GH_REPO}/{virtual_filename}"
     preset_missing = {"CUT", "CUT_TRAIN", "CUT_VALID", "CUTOFF", "SPLIT_TS"}
     for nm in preset_missing:
         mod.__dict__.setdefault(nm, None)
-
     for _ in range(5):
         try:
             exec(code, mod.__dict__)
@@ -238,7 +219,6 @@ def _metrics(y, yhat) -> Dict[str, float]:
     return {"RMSE": rmse, "MAE": mae, "MAPE%": mape, "R2": r2}
 
 def build_features_via_module(df: pd.DataFrame, module, target: str) -> pd.DataFrame:
-    """Modülde build_feature_frame varsa çağırır; yoksa df'i döner."""
     if module is None:
         return df
     fn = getattr(module, "build_feature_frame", None)
@@ -256,7 +236,6 @@ def build_features_via_module(df: pd.DataFrame, module, target: str) -> pd.DataF
     return df
 
 def get_optimized_params(module, model_key: str, target: str):
-    """Modülde varsa best param sözlüklerini alır."""
     if module is None:
         return None
     names = [
@@ -273,14 +252,12 @@ def get_optimized_params(module, model_key: str, target: str):
 def make_model_factories(module, target: str, quick_mode: bool):
     factories = {}
 
-    # Ridge
     ridge_params = get_optimized_params(module, "ridge", target) or {}
     factories["ridge"] = lambda: Pipeline([
         ("scaler", StandardScaler(with_mean=False)),
         ("ridge", Ridge(**{k: v for k, v in ridge_params.items() if k in Ridge().get_params()})),
     ])
 
-    # LightGBM
     if LGBMRegressor is not None:
         lgbm_params = get_optimized_params(module, "lgbm", target) or {}
         base = dict(random_state=42, n_jobs=-1)
@@ -293,7 +270,6 @@ def make_model_factories(module, target: str, quick_mode: bool):
     else:
         factories["lgbm"] = None
 
-    # XGBoost
     if XGBRegressor is not None:
         xgb_params = get_optimized_params(module, "xgb", target) or {}
         base = dict(random_state=42, n_estimators=300 if quick_mode else 800,
@@ -305,20 +281,17 @@ def make_model_factories(module, target: str, quick_mode: bool):
     else:
         factories["xgb"] = None
 
-    # RandomForest
     rf_params = get_optimized_params(module, "rf", target) or {}
     base = dict(random_state=42, n_estimators=200 if quick_mode else 500, n_jobs=-1,
                 max_depth=16 if quick_mode else None)
     base.update(rf_params)
     factories["randomforest"] = lambda: RandomForestRegressor(**base)
 
-    # CART
     cart_params = get_optimized_params(module, "cart", target) or {}
     if quick_mode and "max_depth" not in cart_params:
         cart_params["max_depth"] = 10
     factories["cart"] = lambda: CART(random_state=42, **cart_params)
 
-    # Voting
     def _voting_factory():
         members: List[Tuple[str, object]] = [("ridge", factories["ridge"]())]
         if factories["randomforest"] is not None:
@@ -341,54 +314,55 @@ def make_model_factories(module, target: str, quick_mode: bool):
 
 # ================================ UI ====================================
 with st.sidebar:
-    st.header("Ayarlar")
+    st.header("Ayarlar (GitHub)")
 
-    # Repo içi data klasörü dosyalarını listele
-    data_files = []
+    # 1) Default branch öğren
     try:
-        entries = gh_list_dir(DEFAULT_DATA_DIR)
-        for it in entries:
-            if it.get("type") == "file" and it.get("name", "").lower().endswith((".parquet", ".csv")):
-                data_files.append(f"{DEFAULT_DATA_DIR}/{it['name']}")
+        GH_BRANCH = gh_default_branch(GH_OWNER, GH_REPO)
     except Exception as e:
-        st.warning(f"GitHub listesi alınamadı: {e}")
-        data_files = []
+        st.error(f"Repo bilgisi alınamadı: {e}")
+        st.stop()
 
-    # Varsayılan dosya seçimi
-    default_data_rel = f"{DEFAULT_DATA_DIR}/{DEFAULT_DATA_FILE}" if DEFAULT_DATA_FILE else (data_files[0] if data_files else "")
+    st.caption(f"🌿 Branch: `{GH_BRANCH}`")
 
+    # 2) Tüm repo ağacını çek ve filtrele
+    parquet_csv_files: List[str] = []
+    py_files: List[str] = []
+    error_tree = None
+    try:
+        tree = gh_tree(GH_OWNER, GH_REPO, GH_BRANCH)  # [{'path': 'a/b', 'type': 'blob'|'tree', ...}]
+        for node in tree:
+            if node.get("type") != "blob":
+                continue
+            p = node.get("path", "")
+            low = p.lower()
+            if low.endswith((".parquet", ".csv")):
+                parquet_csv_files.append(p)
+            elif low.endswith(".py"):
+                py_files.append(p)
+    except Exception as e:
+        error_tree = str(e)
+
+    if error_tree:
+        st.error(f"Repo ağacı alınamadı: {error_tree}")
+        st.stop()
+
+    if not parquet_csv_files:
+        st.error("Repoda .parquet veya .csv dosyası bulunamadı.")
+        st.stop()
+
+    # Veri seçimleri
     data_choice = st.selectbox(
-        "Veri dosyası (GitHub)",
-        options=data_files if data_files else [default_data_rel] if default_data_rel else [],
-        index=(data_files.index(default_data_rel) if default_data_rel in data_files else 0) if (data_files or default_data_rel) else 0,
-        help="Repo içindeki Parquet/CSV dosyaları"
+        "Veri dosyası (GitHub raw)",
+        options=sorted(parquet_csv_files),
+        index=0
     )
 
-    # Modül .py seçimleri: default adayları + data klasöründeki .py'ler
-    module_files = []
-    try:
-        # default klasörde .py tara
-        for it in entries:
-            if it.get("type") == "file" and it.get("name", "").lower().endswith(".py"):
-                module_files.append(f"{DEFAULT_DATA_DIR}/{it['name']}")
-    except Exception:
-        pass
-
-    # varsayılan adayları öne ekle (varsa)
-    for cand in DEFAULT_MODULE_CANDIDATES:
-        try:
-            # existence check (HEAD yok, raw GET ile hızlı test)
-            _ = gh_get_bytes(cand) if cand.lower().endswith(".parquet") else gh_get_text(cand)
-            if cand not in module_files:
-                module_files.insert(0, cand)
-        except Exception:
-            continue
-
+    # Modül seçimleri (opsiyonel)
     module_choice = st.selectbox(
         "Özellik/param modülü (GitHub .py) — opsiyonel",
-        options=["(kullanma)"] + module_files,
-        index=0,
-        help="Notebook'tan dönüştürdüğün .py; varsa özellik çıkarımı ve 'best_*_params' sözlüklerini okur."
+        options=["(kullanma)"] + sorted(py_files),
+        index=0
     )
 
     target_mode = st.selectbox("Hedef", ["ptf", "smf", "both"], index=0)
@@ -417,10 +391,8 @@ with st.sidebar:
 # =============================== Çalıştırma ==============================
 # 1) Veri oku (GitHub)
 try:
-    if not data_choice:
-        raise FileNotFoundError("Seçilecek veri bulunamadı (repo'da .parquet/.csv yok mu?)")
     st.caption(f"🔎 Veri (GitHub): `{GH_OWNER}/{GH_REPO}@{GH_BRANCH}/{data_choice}`")
-    raw = read_data_from_github(data_choice)
+    raw = read_data_from_github(GH_OWNER, GH_REPO, GH_BRANCH, data_choice)
 except Exception as e:
     st.error(f"Veri okunamadı: {e}")
     st.stop()
@@ -436,7 +408,7 @@ if run_btn and chosen_models:
     if module_choice and module_choice != "(kullanma)":
         try:
             st.caption(f"🔎 Modül (GitHub): `{GH_OWNER}/{GH_REPO}@{GH_BRANCH}/{module_choice}`")
-            module_src = gh_get_text(module_choice)
+            module_src = gh_raw_text(GH_OWNER, GH_REPO, GH_BRANCH, module_choice)
             module = safe_import_module_from_source(module_src, virtual_filename=module_choice.split("/")[-1])
         except Exception as e:
             st.warning(f"Modül import edilemedi: {e}")
@@ -456,73 +428,6 @@ if run_btn and chosen_models:
         feat = feat.dropna(subset=[target])
         features = pick_feature_columns(feat, target)
         return feat, features
-
-    def make_model_factories(module, target: str, quick_mode: bool):
-        factories = {}
-
-        # Ridge
-        ridge_params = (get_optimized_params(module, "ridge", target) or {})
-        factories["ridge"] = lambda: Pipeline([
-            ("scaler", StandardScaler(with_mean=False)),
-            ("ridge", Ridge(**{k: v for k, v in ridge_params.items() if k in Ridge().get_params()})),
-        ])
-
-        # LightGBM
-        if LGBMRegressor is not None:
-            lgbm_params = (get_optimized_params(module, "lgbm", target) or {})
-            base = dict(random_state=42, n_jobs=-1)
-            if quick_mode:
-                base.update(dict(n_estimators=300, learning_rate=0.08, num_leaves=31, max_depth=-1))
-            else:
-                base.update(dict(n_estimators=800))
-            base.update(lgbm_params)
-            factories["lgbm"] = lambda: LGBMRegressor(**base)
-        else:
-            factories["lgbm"] = None
-
-        # XGBoost
-        if XGBRegressor is not None:
-            xgb_params = (get_optimized_params(module, "xgb", target) or {})
-            base = dict(random_state=42, n_estimators=300 if quick_mode else 800,
-                        learning_rate=0.07 if quick_mode else 0.05,
-                        subsample=0.9, colsample_bytree=0.9, max_depth=6,
-                        n_jobs=-1, tree_method="hist")
-            base.update(xgb_params)
-            factories["xgb"] = lambda: XGBRegressor(**base)
-        else:
-            factories["xgb"] = None
-
-        # RandomForest
-        rf_params = (get_optimized_params(module, "rf", target) or {})
-        base = dict(random_state=42, n_estimators=200 if quick_mode else 500, n_jobs=-1,
-                    max_depth=16 if quick_mode else None)
-        base.update(rf_params)
-        factories["randomforest"] = lambda: RandomForestRegressor(**base)
-
-        # CART
-        cart_params = (get_optimized_params(module, "cart", target) or {})
-        if quick_mode and "max_depth" not in cart_params:
-            cart_params["max_depth"] = 10
-        factories["cart"] = lambda: CART(random_state=42, **cart_params)
-
-        # Voting
-        def _voting_factory():
-            members: List[Tuple[str, object]] = [("ridge", factories["ridge"]())]
-            if factories["randomforest"] is not None:
-                members.append(("rf", factories["randomforest"]()))
-            if quick_mode:
-                if factories["lgbm"] is not None:
-                    members.append(("lgbm", factories["lgbm"]()))
-                elif factories["xgb"] is not None:
-                    members.append(("xgb", factories["xgb"]()))
-            else:
-                if factories["lgbm"] is not None:
-                    members.append(("lgbm", factories["lgbm"]()))
-                if factories["xgb"] is not None:
-                    members.append(("xgb", factories["xgb"]()))
-            return VotingRegressor(estimators=members)
-        factories["voting"] = _voting_factory
-        return factories
 
     def train_and_predict(df: pd.DataFrame, features: List[str], target: str,
                           models: List[str], factories, max_train_days: int) -> pd.DataFrame:
@@ -558,7 +463,7 @@ if run_btn and chosen_models:
                 st.warning(f"{key} eğitimi başarısız: {e}")
         return out
 
-    # ==== pipeline ====
+    # === pipeline ===
     for tgt in tabs:
         feat_df, feature_cols = prepare_dataset(raw, module, tgt)
         if not feature_cols:
@@ -569,7 +474,7 @@ if run_btn and chosen_models:
         if preds_df.empty:
             st.error(f"{tgt} için tahmin üretilemedi.")
             st.stop()
-        # Görseller
+
         st.subheader(f"{tgt.upper()} — Gerçek vs Tahmin")
         df = preds_df.sort_values("timestamp")
         tmax = df["timestamp"].max()
@@ -584,11 +489,6 @@ if run_btn and chosen_models:
             m = _metrics(df[tgt].values, df[mc].values)
             rows.append({"Model": mc.replace(f"{tgt}_pred_", ""), **m})
         st.dataframe(pd.DataFrame(rows).set_index("Model"))
-
-    if target_mode == "both":
-        st.subheader("PTF & SMF — Birlikte Gerçek")
-        ptf = preds_df  # son döngüden kalmış olabilir, tekrar hesaplamak istersen results sözlüğü tut
-        # (basitlik için yeniden üretmek yerine raw'dan merge etmek daha doğru; burada gösterimi kısa tuttum)
 
 else:
     st.info("Sol panelden repo içi dosyayı seç, modelleri seç ve **▶ GitHub'dan Yükle • Eğit • Çiz** butonuna bas.")
