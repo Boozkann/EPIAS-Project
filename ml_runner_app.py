@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 import os, sys, importlib.util, types, warnings, ast
 from typing import Dict, List, Tuple
+import re, ntpath
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import streamlit as st
 
 # ======================================================
-# Soft dependency shims – dış modül importunda eksikler çökertmesin
+# Soft dependency shims – dış modül importunda eksikler çökmesin
 # ======================================================
 def _inject_fake(name: str, attr_map: dict | None = None):
     m = types.ModuleType(name)
@@ -90,11 +93,6 @@ st.title("⚡ EPİAŞ PTF/SMF — ML Model Runner (Gerçek vs Tahmin)")
 # ======================================================
 # Yardımcılar
 # ======================================================
-from pathlib import Path
-
-# --- YENİ resolve_repo_path ---
-import re, ntpath
-from pathlib import Path
 
 def resolve_repo_path(p: str) -> str:
     r"""
@@ -145,7 +143,6 @@ def resolve_repo_path(p: str) -> str:
         # read_data FileNotFoundError'ı anlaşılır olsun diye tüm denenenleri ekle
         raise FileNotFoundError(f"Veri bulunamadı. Denenen yollar: {', '.join(tried or [str(P)])}")
 
-
 def _metrics(y, yhat) -> Dict[str, float]:
     y = np.asarray(y, dtype=float); yhat = np.asarray(yhat, dtype=float)
     rmse = float(np.sqrt(np.mean((yhat - y) ** 2)))
@@ -166,7 +163,8 @@ def read_data(path: str) -> pd.DataFrame:
         df = pd.read_csv(path)
     else:
         raise ValueError("Desteklenmeyen format. Parquet veya CSV verin.")
-    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce").dt.tz_localize(None)
+    # Hem tz-aware hem tz-naive durumlarda sorunsuz normalize et
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True).dt.tz_convert(None)
     df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
     return df
 
@@ -401,11 +399,12 @@ with st.sidebar:
 
     data_path = st.text_input(
         "Veri yolu (Parquet/CSV)",
-        value=r"C:\Users\ozkan\OneDrive\Desktop\Project Main\data\processed\fe_full_plus2_causal.parquet",
+        value="data/processed/fe_full_plus2_causal.parquet",
+        help="Repo içinden göreli bir yol gir. Windows yolu girsen de otomatik normalize edilir."
     )
     module_path = st.text_input(
         ".py modülü (özellik müh. + paramlar)",
-        value=r"C:\Users\ozkan\OneDrive\Desktop\Project Main\data\processed\EDA_to_Model_EPIAS_Final_converted.py",
+        value="data/processed/EDA_to_Model_EPIAS_Final_converted.py",
         help="Defterden dönüştürdüğün .py; içindeki build_feature_frame ve en iyi paramlar kullanılır. (Import sadece butona basınca ve güvenli şekilde)"
     )
 
@@ -442,6 +441,7 @@ with st.sidebar:
 # Veri oku (sidebar’dan sonra ve güvenli path çözümü ile)
 try:
     resolved_data_path = resolve_repo_path(data_path)
+    st.caption(f"🔎 Kullanılan veri yolu: `{resolved_data_path}`")
     raw = read_data(resolved_data_path)
 except Exception as e:
     st.error(f"Veri okunamadı: {e}")
@@ -456,6 +456,8 @@ if run_btn and chosen_models:
     module = None
     try:
         resolved_module_path = resolve_repo_path(module_path) if module_path.strip() else ""
+        if resolved_module_path:
+            st.caption(f"🔎 Kullanılan modül yolu: `{resolved_module_path}`")
         module = safe_import_module(resolved_module_path) if resolved_module_path else None
     except Exception as e:
         st.warning(f"Modül import edilemedi: {e}")
