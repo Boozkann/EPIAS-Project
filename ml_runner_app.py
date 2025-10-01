@@ -92,25 +92,59 @@ st.title("⚡ EPİAŞ PTF/SMF — ML Model Runner (Gerçek vs Tahmin)")
 # ======================================================
 from pathlib import Path
 
+# --- YENİ resolve_repo_path ---
+import re, ntpath
+from pathlib import Path
+
 def resolve_repo_path(p: str) -> str:
     r"""
-    Verilen yolu, repo içindeki mutlak yola çevirir.
-    - Windows mutlak yollarını (C:\...) ve ~ kullanıcı yollarını reddeder.
-    - Göreli yol ise, bu dosyanın bulunduğu klasöre göre çözer.
+    Verilen yolu repo içindeki mutlak yola çevirir.
+    - Windows sürücü yolu (C:\... veya D:/...) tespit edilirse sadece dosya adına indirger.
+    - Backslash'ları normalize eder.
+    - Göreli yol ise repo köküne göre çözer; yoksa data/processed altında da dener.
     """
     if not p:
         return p
-    p_str = str(p)
-    # Windows absolute yoluysa (Cloud'da çalışmaz), sadece isme indirgeriz
-    if ":" in p_str[:3]:  # örn. "C:\"
-        # Sadece dosya adını çek (ya da data klasöründe aynı adı bekle)
-        p_str = Path(p_str).name
-    # ~ gibi ev yolu varsa genişlet
-    P = Path(p_str).expanduser()
+
+    base = Path(__file__).parent  # repo kökü
+    s = str(p).strip()
+
+    # 1) Windows sürücü yolu içeriyor mu? (metnin herhangi bir yerinde)
+    if re.search(r"[A-Za-z]:[\\/]", s):
+        # C:\...\file.parquet -> sadece dosya adı
+        s = ntpath.basename(s)
+
+    # 2) Ayraçları normalize et
+    s = s.replace("\\", "/")
+
+    # 3) ~ genişlet
+    P = Path(s).expanduser()
+
+    # 4) Göreli ise repo köküne bağla ve alternatifleri dene
+    tried = []  # hata mesajı için iz sürme
     if not P.is_absolute():
-        base = Path(__file__).parent  # bu dosyanın klasörü
-        P = (base / P).resolve()
-    return str(P)
+        cand = base / P
+        tried.append(str(cand))
+        if cand.exists():
+            return str(cand.resolve())
+
+        # data/processed altında aynı dosya adı
+        if P.name:
+            dp = base / "data" / "processed" / P.name
+            tried.append(str(dp))
+            if dp.exists():
+                return str(dp.resolve())
+
+        # Yoksa yine de repo köküne bağlanmış halini döndür
+        P = cand
+
+    # 5) Mutlak yol ise doğrudan iade; yoksa hata anında denenen yerleri bildir
+    if P.exists():
+        return str(P.resolve())
+    else:
+        # read_data FileNotFoundError'ı anlaşılır olsun diye tüm denenenleri ekle
+        raise FileNotFoundError(f"Veri bulunamadı. Denenen yollar: {', '.join(tried or [str(P)])}")
+
 
 def _metrics(y, yhat) -> Dict[str, float]:
     y = np.asarray(y, dtype=float); yhat = np.asarray(yhat, dtype=float)
