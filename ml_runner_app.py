@@ -90,6 +90,37 @@ st.title("⚡ EPİAŞ PTF/SMF — ML Model Runner (Gerçek vs Tahmin)")
 # ======================================================
 # Yardımcılar
 # ======================================================
+from pathlib import Path
+
+def resolve_repo_path(p: str) -> str:
+    """
+    Verilen yolu, repo içindeki mutlak yola çevirir.
+    - Windows mutlak yollarını (C:\...) ve ~ kullanıcı yollarını reddeder.
+    - Göreli yol ise, bu dosyanın bulunduğu klasöre göre çözer.
+    """
+    if not p:
+        return p
+    p_str = str(p)
+    # Windows absolute yoluysa (Cloud'da çalışmaz), sadece isme indirgeriz
+    if ":" in p_str[:3]:  # örn. "C:\"
+        # Sadece dosya adını çek (ya da data klasöründe aynı adı bekle)
+        p_str = Path(p_str).name
+    # ~ gibi ev yolu varsa genişlet
+    P = Path(p_str).expanduser()
+    if not P.is_absolute():
+        base = Path(__file__).parent  # bu dosyanın klasörü
+        P = (base / P).resolve()
+    return str(P)
+
+# Veri oku
+try:
+    resolved = resolve_repo_path(data_path)
+    raw = read_data(resolved)
+except Exception as e:
+    st.error(f"Veri okunamadı: {e}")
+    st.stop()
+
+
 def _metrics(y, yhat) -> Dict[str, float]:
     y = np.asarray(y, dtype=float); yhat = np.asarray(yhat, dtype=float)
     rmse = float(np.sqrt(np.mean((yhat - y) ** 2)))
