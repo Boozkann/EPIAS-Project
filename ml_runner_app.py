@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
-import os, sys, types, warnings, ast
+import os, sys, importlib.util, types, warnings, ast
 from typing import Dict, List, Tuple
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import streamlit as st
-
 
 # ======================================================
 # Soft dependency shims – dış modül importunda eksikler çökertmesin
@@ -16,7 +13,6 @@ def _inject_fake(name: str, attr_map: dict | None = None):
     for k, v in (attr_map or {}).items():
         setattr(m, k, v)
     sys.modules[name] = m
-
 
 for pkg, attrs in [
     ("tabulate", {"tabulate": lambda x, **kw: str(x)}),
@@ -34,19 +30,19 @@ except Exception:
     _inject_fake("matplotlib")
     _inject_fake("matplotlib.pyplot", {
         "figure": lambda *a, **k: None,
-        "plot": lambda *a, **k: None,
-        "show": lambda: None,
-        "style": types.SimpleNamespace(use=lambda *a, **k: None),
+        "plot":   lambda *a, **k: None,
+        "show":   lambda: None,
+        "style":  types.SimpleNamespace(use=lambda *a, **k: None),
     })
 
 try:
     import seaborn as sns  # noqa
 except Exception:
     _inject_fake("seaborn", {
-        "set": lambda *a, **k: None,
+        "set":      lambda *a, **k: None,
         "lineplot": lambda *a, **k: None,
-        "barplot": lambda *a, **k: None,
-        "heatmap": lambda *a, **k: None,
+        "barplot":  lambda *a, **k: None,
+        "heatmap":  lambda *a, **k: None,
     })
 
 try:
@@ -54,16 +50,11 @@ try:
 except Exception:
     import pandas as _pd
     from collections import namedtuple
-
-    Decomp = namedtuple("DecomposeResult", ["observed", "trend", "seasonal", "resid"])
-
-
+    Decomp = namedtuple("DecomposeResult", ["observed","trend","seasonal","resid"])
     def _fake_decompose(series, model="additive", period=None):
         s = _pd.Series(series).astype(float)
-        nan = _pd.Series([float("nan")] * len(s), index=s.index)
+        nan = _pd.Series([float("nan")]*len(s), index=s.index)
         return Decomp(observed=s, trend=nan, seasonal=nan, resid=nan)
-
-
     _inject_fake("statsmodels")
     _inject_fake("statsmodels.tsa")
     _inject_fake("statsmodels.tsa.seasonal", {"seasonal_decompose": _fake_decompose})
@@ -96,49 +87,49 @@ warnings.filterwarnings("ignore")
 st.set_page_config(page_title="EPİAŞ PTF/SMF — ML Runner", layout="wide")
 st.title("⚡ EPİAŞ PTF/SMF — ML Model Runner (Gerçek vs Tahmin)")
 
-
 # ======================================================
 # Yardımcılar
 # ======================================================
+from pathlib import Path
+
 def resolve_repo_path(p: str) -> str:
-    r"""
-    Verilen yolu çalışılan ortama göre güvenli biçimde çözer:
-    - Eğer verilen yol zaten makinede mevcutsa (lokalde C:\... gibi), aynen kullanır.
-    - Aksi halde (örn. Streamlit Cloud’da C:\... geçersizse) sadece dosya adını alır,
-      bu dosyayı uygulama klasöründe veya data/ klasöründe arar.
+    """
+    Verilen yolu, repo içindeki mutlak yola çevirir.
+    - Windows mutlak yollarını (C:\...) ve ~ kullanıcı yollarını reddeder.
+    - Göreli yol ise, bu dosyanın bulunduğu klasöre göre çözer.
     """
     if not p:
         return p
-    # 1) Olduğu gibi genişlet ve varsa doğrudan kullan
-    P = Path(p).expanduser()
-    if P.exists():
-        return str(P.resolve())
-    # 2) Bulunamadıysa (ör. Cloud’da C:\...), adı üzerinden repo içinde ara
-    name = Path(p).name
-    base = Path(__file__).parent
-    candidates = [
-        base / name,
-        base / "data" / name,
-    ]
-    for c in candidates:
-        if c.exists():
-            return str(c.resolve())
-    # 3) Yine de bulunamazsa, orijinali döndür (read_data anlamlı hata verecek)
+    p_str = str(p)
+    # Windows absolute yoluysa (Cloud'da çalışmaz), sadece isme indirgeriz
+    if ":" in p_str[:3]:  # örn. "C:\"
+        # Sadece dosya adını çek (ya da data klasöründe aynı adı bekle)
+        p_str = Path(p_str).name
+    # ~ gibi ev yolu varsa genişlet
+    P = Path(p_str).expanduser()
+    if not P.is_absolute():
+        base = Path(__file__).parent  # bu dosyanın klasörü
+        P = (base / P).resolve()
     return str(P)
+
+# Veri oku
+try:
+    resolved = resolve_repo_path(data_path)
+    raw = read_data(resolved)
+except Exception as e:
+    st.error(f"Veri okunamadı: {e}")
+    st.stop()
 
 
 def _metrics(y, yhat) -> Dict[str, float]:
-    y = np.asarray(y, dtype=float);
-    yhat = np.asarray(yhat, dtype=float)
+    y = np.asarray(y, dtype=float); yhat = np.asarray(yhat, dtype=float)
     rmse = float(np.sqrt(np.mean((yhat - y) ** 2)))
-    mae = float(np.mean(np.abs(yhat - y)))
+    mae  = float(np.mean(np.abs(yhat - y)))
     denom = np.maximum(np.abs(y), np.percentile(np.abs(y), 10) if y.size else 10.0) + 1e-6
     mape = float(np.mean(np.abs(yhat - y) / denom) * 100)
-    ss_tot = np.sum((y - np.mean(y)) ** 2);
-    ss_res = np.sum((yhat - y) ** 2)
+    ss_tot = np.sum((y - np.mean(y))**2); ss_res = np.sum((yhat - y)**2)
     r2 = float(1.0 - (ss_res / (ss_tot if ss_tot > 1e-12 else 1e-12)))
     return {"RMSE": rmse, "MAE": mae, "MAPE%": mape, "R2": r2}
-
 
 @st.cache_data(show_spinner=False)
 def read_data(path: str) -> pd.DataFrame:
@@ -154,19 +145,17 @@ def read_data(path: str) -> pd.DataFrame:
     df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
     return df
 
-
 # -------- Güvenli import: sadece fonksiyonlar + param sözlükleri --------
 ALLOWED_GLOBAL_NAMES = {
     "CUT_TS",
     "best_lgbm_params", "best_xgb_params", "best_rf_params", "best_cart_params", "best_ridge_params",
     "lgbm_best_params", "xgb_best_params", "rf_best_params", "ridge_best_params", "cart_best_params",
     "best_lgbm_params_ptf", "best_lgbm_params_smf",
-    "best_xgb_params_ptf", "best_xgb_params_smf",
-    "best_rf_params_ptf", "best_rf_params_smf",
-    "best_ridge_params_ptf", "best_ridge_params_smf",
+    "best_xgb_params_ptf",  "best_xgb_params_smf",
+    "best_rf_params_ptf",   "best_rf_params_smf",
+    "best_ridge_params_ptf","best_ridge_params_smf",
     "best_cart_params_ptf", "best_cart_params_smf",
 }
-
 
 def safe_import_module(py_path: str):
     """
@@ -235,4 +224,257 @@ def build_features_via_module(df: pd.DataFrame, module, target: str) -> pd.DataF
     fn = getattr(module, "build_feature_frame", None)
     if callable(fn):
         try:
+            try:
+                out = fn(df, target=target)
+            except TypeError:
+                out = fn(df)
+            out["timestamp"] = pd.to_datetime(out["timestamp"], errors="coerce").dt.tz_localize(None)
+            out = out.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
+            return out
+        except Exception as e:
+            st.warning(f"build_feature_frame çağrısı başarısız: {e}")
+    return df
 
+def get_optimized_params(module, model_key: str, target: str):
+    """Modülde varsa best param sözlüklerini alır."""
+    if module is None:
+        return None
+    names = [
+        f"best_{model_key}_params_{target}",
+        f"best_{model_key}_params",
+        f"{model_key}_best_params_{target}",
+        f"{model_key}_best_params",
+    ]
+    for n in names:
+        if hasattr(module, n):
+            return getattr(module, n)
+    return None
+
+def make_model_factories(module, target: str, quick_mode: bool):
+    factories = {}
+
+    # Ridge
+    ridge_params = get_optimized_params(module, "ridge", target) or {}
+    factories["ridge"] = lambda: Pipeline([
+        ("scaler", StandardScaler(with_mean=False)),
+        ("ridge", Ridge(**{k: v for k, v in ridge_params.items() if k in Ridge().get_params()})),
+    ])
+
+    # LightGBM
+    if LGBMRegressor is not None:
+        lgbm_params = get_optimized_params(module, "lgbm", target) or {}
+        base = dict(random_state=42, n_jobs=-1)
+        if quick_mode:
+            base.update(dict(n_estimators=300, learning_rate=0.08, num_leaves=31, max_depth=-1))
+        else:
+            base.update(dict(n_estimators=800))
+        base.update(lgbm_params)
+        factories["lgbm"] = lambda: LGBMRegressor(**base)
+    else:
+        factories["lgbm"] = None
+
+    # XGBoost
+    if XGBRegressor is not None:
+        xgb_params = get_optimized_params(module, "xgb", target) or {}
+        base = dict(random_state=42, n_estimators=300 if quick_mode else 800,
+                    learning_rate=0.07 if quick_mode else 0.05,
+                    subsample=0.9, colsample_bytree=0.9, max_depth=6,
+                    n_jobs=-1, tree_method="hist")
+        base.update(xgb_params)
+        factories["xgb"] = lambda: XGBRegressor(**base)
+    else:
+        factories["xgb"] = None
+
+    # RandomForest
+    rf_params = get_optimized_params(module, "rf", target) or {}
+    base = dict(random_state=42, n_estimators=200 if quick_mode else 500, n_jobs=-1,
+                max_depth=16 if quick_mode else None)
+    base.update(rf_params)
+    factories["randomforest"] = lambda: RandomForestRegressor(**base)
+
+    # CART
+    cart_params = get_optimized_params(module, "cart", target) or {}
+    if quick_mode and "max_depth" not in cart_params:
+        cart_params["max_depth"] = 10
+    factories["cart"] = lambda: CART(random_state=42, **cart_params)
+
+    # Voting
+    def _voting_factory():
+        members: List[Tuple[str, object]] = [("ridge", factories["ridge"]())]
+        if factories["randomforest"] is not None:
+            members.append(("rf", factories["randomforest"]()))
+        if quick_mode:
+            if factories["lgbm"] is not None:
+                members.append(("lgbm", factories["lgbm"]()))
+            elif factories["xgb"] is not None:
+                members.append(("xgb", factories["xgb"]()))
+        else:
+            if factories["lgbm"] is not None:
+                members.append(("lgbm", factories["lgbm"]()))
+            if factories["xgb"] is not None:
+                members.append(("xgb", factories["xgb"]()))
+        return VotingRegressor(estimators=members)
+    factories["voting"] = _voting_factory
+
+    return factories
+
+def pick_feature_columns(df: pd.DataFrame, target: str) -> List[str]:
+    drop_like = {target, "timestamp", f"{target}_pred"}
+    cols = [c for c in df.columns if c not in drop_like and pd.api.types.is_numeric_dtype(df[c])]
+    return cols
+
+def prepare_dataset(df: pd.DataFrame, module, target: str) -> Tuple[pd.DataFrame, List[str]]:
+    base = df.copy()
+    feat = build_features_via_module(base, module, target)
+    feat = feat.dropna(subset=[target])
+    features = pick_feature_columns(feat, target)
+    return feat, features
+
+def train_and_predict(df: pd.DataFrame, features: List[str], target: str,
+                      models: List[str], factories, max_train_days: int) -> pd.DataFrame:
+    data = df.sort_values("timestamp").reset_index(drop=True)
+    # Eğitim penceresi ile hızlandır
+    if max_train_days and max_train_days > 0:
+        tmax = data["timestamp"].max()
+        tmin = tmax - pd.Timedelta(days=int(max_train_days))
+        data = data[data["timestamp"].between(tmin, tmax)].copy()
+
+    if data[target].isna().all():
+        st.error(f"{target} için veri yok.")
+        return pd.DataFrame()
+
+    # Basit zaman bazlı split: son %15 test
+    split = int(len(data) * 0.85)
+    train = data.iloc[:split].copy()
+    test  = data.iloc[split:].copy()
+
+    Xtr, ytr = train[features].fillna(0.0).to_numpy(), train[target].astype(float).to_numpy()
+    Xte, yte = test[features].fillna(0.0).to_numpy(),  test[target].astype(float).to_numpy()
+    out = test[["timestamp", target]].copy()
+
+    for key in models:
+        fac = factories.get(key)
+        if fac is None:
+            st.warning(f"{key} modeli atlandı (gerekli paket kurulu değil).")
+            continue
+        try:
+            mdl = fac()
+            mdl.fit(Xtr, ytr)
+            pred = mdl.predict(Xte)
+            out[f"{target}_pred_{key}"] = pred
+        except Exception as e:
+            st.warning(f"{key} eğitimi başarısız: {e}")
+    return out
+
+# ======================================================
+# UI — Kontroller
+# ======================================================
+with st.sidebar:
+    st.header("Ayarlar")
+
+    target_mode = st.selectbox("Hedef", ["ptf", "smf", "both"], index=0)
+
+    data_path = st.text_input(
+        "Veri yolu (Parquet/CSV)",
+        value=r"C:\Users\ozkan\OneDrive\Desktop\Project Main\data\processed\fe_full_plus2_causal.parquet",
+    )
+    module_path = st.text_input(
+        ".py modülü (özellik müh. + paramlar)",
+        value=r"C:\Users\ozkan\OneDrive\Desktop\Project Main\data\processed\EDA_to_Model_EPIAS_Final_converted.py",
+        help="Defterden dönüştürdüğün .py; içindeki build_feature_frame ve en iyi paramlar kullanılır. (Import sadece butona basınca ve güvenli şekilde)"
+    )
+
+    last_days = st.slider("Grafikte son kaç gün gösterilsin?", 3, 90, 14, step=1)
+    max_train_days = st.slider("Eğitim penceresi (son N gün)", 14, 365, 90, step=7,
+                               help="Eğitimi tüm tarih yerine son N gün ile sınırla (çok hızlandırır).")
+    quick_mode = st.checkbox("Hızlı mod (daha az estimator / daha sığ ağaç)", value=True)
+
+    # Model çoklu seçim + kısayollar (hiçbiri seçili değil)
+    if "chosen_models" not in st.session_state:
+        st.session_state.chosen_models = []
+    all_models = ["ridge", "lgbm", "xgb", "cart", "randomforest", "voting"]
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Hiçbirini seçme"):
+            st.session_state.chosen_models = []
+    with col2:
+        if st.button("Hepsini seç"):
+            st.session_state.chosen_models = all_models.copy()
+
+    chosen_models = st.multiselect(
+        "Koşturulacak modeller",
+        all_models,
+        default=st.session_state.chosen_models,
+    )
+
+    run_btn = st.button("▶ Modelleri Eğit ve Çiz", type="primary")
+    if run_btn and not chosen_models:
+        st.warning("Lütfen en az bir model seçin.")
+
+# ======================================================
+# Çalıştırma
+# ======================================================
+# Veri oku (ilk açılışta sadece veri okunur; eğitim yok)
+try:
+    raw = read_data(data_path)
+except Exception as e:
+    st.error(f"Veri okunamadı: {e}")
+    st.stop()
+
+if "ptf" not in raw.columns and "smf" not in raw.columns:
+    st.error("Veride 'ptf' veya 'smf' kolonu bulunmuyor.")
+    st.stop()
+
+if run_btn and chosen_models:
+    # Modülü sadece butona basınca ve güvenli import ile al
+    module = safe_import_module(module_path) if module_path.strip() else None
+
+    tabs = ("ptf", "smf") if target_mode == "both" else (target_mode,)
+    results: Dict[str, pd.DataFrame] = {}
+
+    for tgt in tabs:
+        feat_df, feature_cols = prepare_dataset(raw, module, tgt)
+        if not feature_cols:
+            st.error(f"{tgt} için özellik kolonu bulunamadı. (build_feature_frame çıktısını ve veriyi kontrol et)")
+            st.stop()
+
+        factories = make_model_factories(module, tgt, quick_mode=quick_mode)
+        preds_df  = train_and_predict(feat_df, feature_cols, tgt, chosen_models, factories, max_train_days=max_train_days)
+        if preds_df.empty:
+            st.error(f"{tgt} için tahmin üretilemedi.")
+            st.stop()
+        results[tgt] = preds_df
+
+    # Görseller
+    for tgt in tabs:
+        st.subheader(f"{tgt.upper()} — Gerçek vs Tahmin")
+        df = results[tgt].sort_values("timestamp")
+        # grafikte son X gün
+        tmax = df["timestamp"].max()
+        tmin = tmax - pd.Timedelta(days=last_days)
+        df = df[df["timestamp"].between(tmin, tmax)].copy()
+
+        model_cols = [c for c in df.columns if c.startswith(f"{tgt}_pred_")]
+        show_cols  = [tgt] + model_cols
+        st.line_chart(df.set_index("timestamp")[show_cols])
+
+        # metrikler
+        rows = []
+        for mc in model_cols:
+            m = _metrics(df[tgt].values, df[mc].values)
+            rows.append({"Model": mc.replace(f"{tgt}_pred_", ""), **m})
+        st.dataframe(pd.DataFrame(rows).set_index("Model"))
+
+    if target_mode == "both":
+        st.subheader("PTF & SMF — Birlikte Gerçek")
+        common = pd.merge_asof(
+            results["ptf"].sort_values("timestamp")[["timestamp","ptf"]],
+            results["smf"].sort_values("timestamp")[["timestamp","smf"]],
+            on="timestamp"
+        )
+        tmax = common["timestamp"].max()
+        tmin = tmax - pd.Timedelta(days=last_days)
+        common = common[common["timestamp"].between(tmin, tmax)]
+        st.line_chart(common.set_index("timestamp")[["ptf", "smf"]])
+else:
+    st.info("Solda veri ve modül yolunu ayarlayın, modelleri seçin ve **▶ Modelleri Eğit ve Çiz** butonuna basın.")
