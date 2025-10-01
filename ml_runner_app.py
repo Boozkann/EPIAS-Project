@@ -93,7 +93,7 @@ st.title("⚡ EPİAŞ PTF/SMF — ML Model Runner (Gerçek vs Tahmin)")
 from pathlib import Path
 
 def resolve_repo_path(p: str) -> str:
-    """
+    r"""
     Verilen yolu, repo içindeki mutlak yola çevirir.
     - Windows mutlak yollarını (C:\...) ve ~ kullanıcı yollarını reddeder.
     - Göreli yol ise, bu dosyanın bulunduğu klasöre göre çözer.
@@ -111,15 +111,6 @@ def resolve_repo_path(p: str) -> str:
         base = Path(__file__).parent  # bu dosyanın klasörü
         P = (base / P).resolve()
     return str(P)
-
-# Veri oku
-try:
-    resolved = resolve_repo_path(data_path)
-    raw = read_data(resolved)
-except Exception as e:
-    st.error(f"Veri okunamadı: {e}")
-    st.stop()
-
 
 def _metrics(y, yhat) -> Dict[str, float]:
     y = np.asarray(y, dtype=float); yhat = np.asarray(yhat, dtype=float)
@@ -414,9 +405,10 @@ with st.sidebar:
 # ======================================================
 # Çalıştırma
 # ======================================================
-# Veri oku (ilk açılışta sadece veri okunur; eğitim yok)
+# Veri oku (sidebar’dan sonra ve güvenli path çözümü ile)
 try:
-    raw = read_data(data_path)
+    resolved_data_path = resolve_repo_path(data_path)
+    raw = read_data(resolved_data_path)
 except Exception as e:
     st.error(f"Veri okunamadı: {e}")
     st.stop()
@@ -427,7 +419,13 @@ if "ptf" not in raw.columns and "smf" not in raw.columns:
 
 if run_btn and chosen_models:
     # Modülü sadece butona basınca ve güvenli import ile al
-    module = safe_import_module(module_path) if module_path.strip() else None
+    module = None
+    try:
+        resolved_module_path = resolve_repo_path(module_path) if module_path.strip() else ""
+        module = safe_import_module(resolved_module_path) if resolved_module_path else None
+    except Exception as e:
+        st.warning(f"Modül import edilemedi: {e}")
+        module = None
 
     tabs = ("ptf", "smf") if target_mode == "both" else (target_mode,)
     results: Dict[str, pd.DataFrame] = {}
