@@ -460,7 +460,7 @@ with st.sidebar:
         st.error(f"❌ Repo bilgisi alınamadı: {e}")
         st.stop()
 
-    st.success(f"✅ Branch: `{GH_BRANCH}`")
+    st.caption(f"🌿 Branch: `{GH_BRANCH}`")
 
     # 2) Tüm repo ağacını çek ve filtrele
     parquet_csv_files: List[str] = []
@@ -527,13 +527,13 @@ with st.sidebar:
     
     all_models = ["ridge", "lgbm", "xgb", "cart", "randomforest", "voting"]
     
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([1, 1])
     with col1:
-        if st.button("❌ Temizle", use_container_width=True):
+        if st.button("Temizle", use_container_width=True):
             st.session_state.chosen_models = []
             st.rerun()
     with col2:
-        if st.button("✅ Tümü", use_container_width=True):
+        if st.button("Tümü", use_container_width=True):
             st.session_state.chosen_models = all_models.copy()
             st.rerun()
 
@@ -549,12 +549,12 @@ with st.sidebar:
     
     # Parametreler
     st.subheader("🎚️ Parametreler")
-    last_days = st.slider("📅 Görselleştirme Dönemi (gün)", 7, 90, 30, step=7)
-    max_train_days = st.slider("📚 Eğitim Penceresi (gün)", 30, 365, 90, step=30)
-    quick_mode = st.checkbox("⚡ Hızlı Mod (daha az iterasyon)", value=True)
+    last_days = st.slider("📅 Görselleştirme dönemi (gün)", 7, 90, 30, step=7)
+    max_train_days = st.slider("📚 Eğitim penceresi (gün)", 30, 365, 90, step=30)
+    quick_mode = st.checkbox("⚡ Hızlı mod (daha az iterasyon)", value=True)
 
     st.markdown("---")
-    run_btn = st.button("🚀 Analizi Başlat", type="primary", use_container_width=True)
+    run_btn = st.button("Analizi Başlat", type="primary", use_container_width=True)
     
     if run_btn and not chosen_models:
         st.warning("⚠️ Lütfen en az bir model seçin.")
@@ -600,7 +600,7 @@ if run_btn and chosen_models:
             with st.spinner(f"📦 Modül yükleniyor..."):
                 module_src = gh_raw_text(GH_OWNER, GH_REPO, GH_BRANCH, module_choice)
                 module = safe_import_module_from_source(module_src, virtual_filename=module_choice.split("/")[-1])
-            st.success("✅ Modül başarıyla yüklendi")
+            st.success("Modül başarıyla yüklendi")
         except Exception as e:
             st.warning(f"⚠️ Modül import edilemedi: {e}")
             module = None
@@ -667,7 +667,7 @@ if run_btn and chosen_models:
                 st.warning(f"⚠️ {tgt} için özellik bulunamadı.")
                 continue
 
-            st.info(f"ℹ️ **Kullanılan Özellik Sayısı:** {len(feat_cols)}")
+            st.info(f"ℹ️ **Kullanılan özellik sayısı:** {len(feat_cols)}")
             
             factories = make_model_factories(module, tgt, quick_mode)
             available = [k for k in chosen_models if factories.get(k) is not None]
@@ -676,7 +676,7 @@ if run_btn and chosen_models:
                 st.warning(f"⚠️ {tgt} için model yok.")
                 continue
 
-            st.info(f"🎯 **Eğitilecek Modeller:** {', '.join([m.upper() for m in available])}")
+            st.info(f"🎯 **Eğitilecek modeller:** {', '.join([m.upper() for m in available])}")
             
             result_df = train_and_predict(feat_df, feat_cols, tgt, available, factories, max_train_days)
             
@@ -803,7 +803,7 @@ if run_btn and chosen_models:
             with st.expander("🔍 Hata Detayları"):
                 st.code(traceback.format_exc())
 
-    st.success("✅ Analiz tamamlandı!")
+    st.success("Analiz tamamlandı!")
     
     # İndirme seçenekleri
     st.markdown("---")
@@ -819,32 +819,27 @@ if run_btn and chosen_models:
 
 else:
     # Başlangıç ekranı
+    st.info("👋 **Hoş Geldiniz!** Bu uygulama EPİAŞ enerji piyasası verilerini analiz eder ve makine öğrenmesi modelleri ile tahminler oluşturur.")
+    
+    st.markdown("### 📝 Kullanım Adımları:")
     st.markdown("""
-    <div class="info-box">
-        <h3>👋 Hoş Geldiniz!</h3>
-        <p>Bu uygulama EPİAŞ enerji piyasası verilerini analiz eder ve makine öğrenmesi modelleri ile tahminler oluşturur.</p>
-        
-        <h4>📝 Kullanım Adımları:</h4>
-        <ol>
-            <li><strong>Sol panelden</strong> analiz parametrelerini ayarlayın</li>
-            <li><strong>Model seçimi</strong> yapın (LGBM, XGBoost, Random Forest, vb.)</li>
-            <li><strong>Görselleştirme dönemi</strong> ve eğitim parametrelerini belirleyin</li>
-            <li><strong>"Analizi Başlat"</strong> butonuna tıklayın</li>
-        </ol>
-        
-        <h4>🎯 Özellikler:</h4>
-        <ul>
-            <li>• PTF ve SMF Tahminleri</li>
-            <li>• Çoklu Model Karşılaştırması</li>
-            <li>• İnteraktif Grafikler</li>
-            <li>• Detaylı Performans Metrikleri</li>
-            <li>• Günlük Hata Analizi</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
+1. **Sol panelden** analiz parametrelerini ayarlayın
+2. **Model seçimi** yapın (LGBM, XGBoost, Random Forest, vb.)
+3. **Görselleştirme dönemi** ve eğitim parametrelerini belirleyin
+4. **"Analizi Başlat"** butonuna tıklayın
+    """)
+    
+    st.markdown("### 🎯 Özellikler:")
+    st.markdown("""
+- PTF ve SMF tahminleri
+- Çoklu model karşılaştırması
+- İnteraktif grafikler
+- Detaylı performans metrikleri
+- Günlük hata analizi
+    """)
     
     # Örnek veri önizlemesi
-    st.markdown('<div class="sub-header">📊 Veri Önizleme</div>', unsafe_allow_html=True)
+    st.markdown("### 📊 Veri Önizleme")
     
     preview_df = raw.head(10).copy()
     if 'timestamp' in preview_df.columns:
@@ -852,4 +847,4 @@ else:
     
     st.dataframe(preview_df, use_container_width=True, hide_index=True)
     
-    st.info("💡 **İpucu:** Başlamak için 'Analizi Başlat'")
+    st.info("💡 **İpucu:** Başlamak için sol panelden 'Analizi Başlat!'")
