@@ -526,6 +526,24 @@ with st.sidebar:
     
     all_models = ["ridge", "lgbm", "xgb", "cart", "randomforest", "voting"]
     
+    # Model isimleri için mapping
+    model_display_names = {
+        "ridge": "Ridge",
+        "lgbm": "LGBM",
+        "xgb": "XGB",
+        "cart": "Cart",
+        "randomforest": "RandomForest",
+        "voting": "Voting"
+    }
+
+    chosen_models = st.multiselect(
+        "Modeller", 
+        all_models, 
+        default=st.session_state.chosen_models,
+        format_func=lambda x: model_display_names[x]
+    )
+    st.session_state.chosen_models = chosen_models
+    
     col1, col2 = st.columns([1, 1])
     with col1:
         if st.button("Temizle", use_container_width=True):
@@ -535,14 +553,6 @@ with st.sidebar:
         if st.button("Tümü", use_container_width=True):
             st.session_state.chosen_models = all_models.copy()
             st.rerun()
-
-    chosen_models = st.multiselect(
-        "Modeller", 
-        all_models, 
-        default=st.session_state.chosen_models,
-        format_func=lambda x: x.upper()
-    )
-    st.session_state.chosen_models = chosen_models
 
     st.markdown("---")
 
