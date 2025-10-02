@@ -519,6 +519,16 @@ with st.sidebar:
     st.subheader("📊 Model Seçimi")
     target_mode = st.radio("Hedef değişken", ["PTF", "SMF", "Her İkisi"], index=2)
     target_mode = target_mode.lower().replace("ptf", "ptf").replace("smf", "smf").replace("her ikisi", "both")
+
+    chosen_models = st.multiselect(
+        "Modeller", 
+        all_models, 
+        default=st.session_state.chosen_models,
+        format_func=lambda x: x.upper()
+    )
+    st.session_state.chosen_models = chosen_models
+
+    st.markdown("---")
     
     if "chosen_models" not in st.session_state:
         st.session_state.chosen_models = ["lgbm", "xgb", "randomforest", "voting"]
@@ -535,16 +545,7 @@ with st.sidebar:
             st.session_state.chosen_models = all_models.copy()
             st.rerun()
 
-    chosen_models = st.multiselect(
-        "Modeller", 
-        all_models, 
-        default=st.session_state.chosen_models,
-        format_func=lambda x: x.upper()
-    )
-    st.session_state.chosen_models = chosen_models
-
-    st.markdown("---")
-    
+        
     # Parametreler
     st.subheader("Parametreler")
     last_days = st.slider("Görselleştirme Dönemi (gün)", 7, 90, 30, step=7)
