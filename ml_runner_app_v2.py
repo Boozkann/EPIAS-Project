@@ -824,18 +824,18 @@ else:
     st.markdown("### 📝 Kullanım Adımları:")
     st.markdown("""
 1. **Sol panelden** analiz parametrelerini ayarlayın
-2. **Model seçimi** yapın (LGBM, XGBoost, Random Forest, vb.)
-3. **Görselleştirme dönemi** ve eğitim parametrelerini belirleyin
+2. **Model Seçimi** yapın (LGBM, XGBoost, Random Forest, vb.)
+3. **Görselleştirme Dönemi** ve eğitim parametrelerini belirleyin
 4. **"Analizi Başlat"** butonuna tıklayın
     """)
     
     st.markdown("### 🎯 Özellikler:")
     st.markdown("""
-- PTF ve SMF tahminleri
-- Çoklu model karşılaştırması
-- İnteraktif grafikler
-- Detaylı performans metrikleri
-- Günlük hata analizi
+- PTF ve SMF Tahminleri
+- Çoklu Model Karşılaştırması
+- İnteraktif Grafikler
+- Detaylı Performans Metrikleri
+- Günlük Hata Analizi
     """)
     
     # Örnek veri önizlemesi
