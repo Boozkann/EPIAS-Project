@@ -508,7 +508,7 @@ with st.sidebar:
         )
         
         module_choice = st.selectbox(
-            "Özellik/param modülü",
+            "Özellik/Param Modülü",
             options=["(kullanma)"] + sorted(py_files),
             index=default_module_idx + 1 if py_files else 0
         )
@@ -517,8 +517,8 @@ with st.sidebar:
     
     # Model seçimleri
     st.subheader("📊 Model Seçimi")
-    target_mode = st.radio("Hedef değişken", ["PTF", "SMF", "Her İkisi"], index=2)
-    target_mode = target_mode.lower().replace("ptf", "ptf").replace("smf", "smf").replace("her ikisi", "both")
+    target_mode = st.radio("Hedef Değişken", ["PTF", "SMF", "Her İkisi"], index=2)
+    target_mode = target_mode.lower().replace("ptf", "ptf").replace("smf", "smf").replace("Her İkisi", "both")
 
        
     if "chosen_models" not in st.session_state:
