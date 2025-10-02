@@ -546,10 +546,10 @@ with st.sidebar:
     st.markdown("---")
     
     # Parametreler
-    st.subheader("🎚️ Parametreler")
-    last_days = st.slider("📅 Görselleştirme dönemi (gün)", 7, 90, 30, step=7)
-    max_train_days = st.slider("📚 Eğitim penceresi (gün)", 30, 365, 90, step=30)
-    quick_mode = st.checkbox("⚡ Hızlı mod (daha az iterasyon)", value=True)
+    st.subheader("Parametreler")
+    last_days = st.slider("Görselleştirme Dönemi (gün)", 7, 90, 30, step=7)
+    max_train_days = st.slider("Eğitim Penceresi (gün)", 30, 365, 90, step=30)
+    quick_mode = st.checkbox("Hızlı Mod (daha az iterasyon)", value=True)
 
     st.markdown("---")
     run_btn = st.button("Analizi Başlat", type="primary", use_container_width=True)
@@ -845,4 +845,4 @@ else:
     
     st.dataframe(preview_df, use_container_width=True, hide_index=True)
     
-    st.info("💡 **İpucu:** Başlamak için sol panelden 'Analizi Başlat!'")
+    st.info("💡 **İpucu:** Başlamak için sol panelden '**Analizi Başlat**'")
