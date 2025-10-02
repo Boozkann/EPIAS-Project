@@ -520,16 +520,7 @@ with st.sidebar:
     target_mode = st.radio("Hedef değişken", ["PTF", "SMF", "Her İkisi"], index=2)
     target_mode = target_mode.lower().replace("ptf", "ptf").replace("smf", "smf").replace("her ikisi", "both")
 
-    chosen_models = st.multiselect(
-        "Modeller", 
-        all_models, 
-        default=st.session_state.chosen_models,
-        format_func=lambda x: x.upper()
-    )
-    st.session_state.chosen_models = chosen_models
-
-    st.markdown("---")
-    
+       
     if "chosen_models" not in st.session_state:
         st.session_state.chosen_models = ["lgbm", "xgb", "randomforest", "voting"]
     
@@ -544,6 +535,16 @@ with st.sidebar:
         if st.button("Tümü", use_container_width=True):
             st.session_state.chosen_models = all_models.copy()
             st.rerun()
+
+    chosen_models = st.multiselect(
+        "Modeller", 
+        all_models, 
+        default=st.session_state.chosen_models,
+        format_func=lambda x: x.upper()
+    )
+    st.session_state.chosen_models = chosen_models
+
+    st.markdown("---")
 
         
     # Parametreler
