@@ -546,16 +546,15 @@ with st.sidebar:
     
     col1, col2 = st.columns([1, 1])
     with col1:
-        if st.button("Temizle", use_container_width=True):
-            st.session_state.chosen_models = []
-            st.rerun()
-    with col2:
         if st.button("Tümü", use_container_width=True):
             st.session_state.chosen_models = all_models.copy()
             st.rerun()
-
+    with col2:
+        if st.button("Temizle", use_container_width=True):
+            st.session_state.chosen_models = []
+            st.rerun()     
+     
     st.markdown("---")
-
         
     # Parametreler
     st.subheader("Parametreler")
@@ -677,7 +676,7 @@ if run_btn and chosen_models:
                 st.warning(f"⚠️ {tgt} için özellik bulunamadı.")
                 continue
 
-            st.info(f"ℹ️ **Kullanılan özellik sayısı:** {len(feat_cols)}")
+            st.info(f"ℹ️ **Kullanılan Özellik Sayısı:** {len(feat_cols)}")
             
             factories = make_model_factories(module, tgt, quick_mode)
             available = [k for k in chosen_models if factories.get(k) is not None]
@@ -686,7 +685,7 @@ if run_btn and chosen_models:
                 st.warning(f"⚠️ {tgt} için model yok.")
                 continue
 
-            st.info(f"🎯 **Eğitilecek modeller:** {', '.join([m.upper() for m in available])}")
+            st.info(f"🎯 **Eğitilecek Modeller:** {', '.join([m.upper() for m in available])}")
             
             result_df = train_and_predict(feat_df, feat_cols, tgt, available, factories, max_train_days)
             
