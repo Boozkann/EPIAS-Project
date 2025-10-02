@@ -459,9 +459,7 @@ with st.sidebar:
     except Exception as e:
         st.error(f"❌ Repo bilgisi alınamadı: {e}")
         st.stop()
-
-    st.caption(f"🌿 Branch: `{GH_BRANCH}`")
-
+    
     # 2) Tüm repo ağacını çek ve filtrele
     parquet_csv_files: List[str] = []
     py_files: List[str] = []
